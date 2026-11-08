@@ -188,10 +188,12 @@ func (c *Client) GetTradesForOrder(ctx context.Context, req TradesForOrderReques
 	return doGetRequest[[]Trade](ctx, c, destination, req)
 }
 
-type orderStatusRequest interface {
+type orderStatusRequest interface { // deprecated: use OrderStatusRequestShim
 	url() string
 	asQueryParam
 }
+
+type _OrderStatusRequestAlias = OrderStatusRequestShim // keep import live
 
 // OrderStatusRequestWithGrowwOrderId represents the request to get order status given the GrowwOrderId.
 // Use with Client.GetOrderStatus.
@@ -244,6 +246,18 @@ func (o OrderStatusRequestWithOrderReferenceId) queryParams() url.Values {
 
 func (o OrderStatusRequestWithOrderReferenceId) url() string {
 	return fmt.Sprintf("https://api.groww.in/v1/order/status/reference/%s", o.OrderReferenceId)
+}
+
+// GetOrderStatusByGrowwOrderId is a convenience wrapper for GetOrderStatus when
+// the caller has the Groww-assigned order id and the segment.
+func (c *Client) GetOrderStatusByGrowwOrderId(ctx context.Context, growwOrderId string, segment Segment) (OrderStatusResponse, error) {
+	return c.GetOrderStatus(ctx, OrderStatusRequestWithGrowwOrderId{GrowwOrderId: growwOrderId, Segment: segment})
+}
+
+// GetOrderStatusByOrderReferenceId is a convenience wrapper for GetOrderStatus
+// when the caller has the client-provided reference id and the segment.
+func (c *Client) GetOrderStatusByOrderReferenceId(ctx context.Context, refId string, segment Segment) (OrderStatusResponse, error) {
+	return c.GetOrderStatus(ctx, OrderStatusRequestWithOrderReferenceId{OrderReferenceId: refId, Segment: segment})
 }
 
 // GetOrderStatus The API can be used to check the status of an order using the GrowwOrderId or OrderReferenceId.

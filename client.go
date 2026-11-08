@@ -7,21 +7,39 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
+	"time"
 )
+
+const defaultAPIBaseURL = "https://api.groww.in"
 
 // Client to access groww apis
 type Client struct {
 	accessToken string
+	baseURL     string
 	httpClient  *http.Client
 }
 
-// NewClient creates a new Client
+// NewClient creates a new Client. Pass httpClient=nil to use http.DefaultClient.
 func NewClient(accessToken string, httpClient *http.Client) Client {
-	if httpClient == nil {
-		httpClient = http.DefaultClient
-	}
+	return NewClientWithBaseURL(accessToken, defaultAPIBaseURL, httpClient)
+}
 
-	return Client{accessToken, httpClient}
+// NewClientWithBaseURL is like NewClient but allows overriding the API base URL
+// (helpful for tests and for pointing at alternative deployments).
+func NewClientWithBaseURL(accessToken, baseURL string, httpClient *http.Client) Client {
+	if baseURL == "" {
+		baseURL = defaultAPIBaseURL
+	}
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 30 * time.Second}
+	}
+	return Client{accessToken: accessToken, baseURL: baseURL, httpClient: httpClient}
+}
+
+// NewClientFromConfig builds a Client from a loaded Config.
+func NewClientFromConfig(c *Config) Client {
+	return NewClientWithBaseURL(c.AccessToken, c.APIBaseURL, &http.Client{Timeout: time.Duration(c.HTTPTimeoutSeconds) * time.Second})
 }
 
 // ErrorCode are codes returned by GROWW APIs
@@ -125,8 +143,20 @@ type asQueryParam interface {
 	queryParams() url.Values
 }
 
+// resolveURL returns raw unchanged if it already contains "://"
+// (absolute); otherwise it is resolved against the client's baseURL.
+func (c *Client) resolveURL(raw string) string {
+	if raw == "" {
+		return raw
+	}
+	if strings.Contains(raw, "://") {
+		return raw
+	}
+	return strings.TrimRight(c.baseURL, "/") + "/" + strings.TrimLeft(raw, "/")
+}
+
 func doGetRequest[T any](ctx context.Context, c *Client, url string, queries asQueryParam) (out T, err error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.resolveURL(url), nil)
 	if err != nil {
 		return out, fmt.Errorf("http.NewRequest: %w", err)
 	}
@@ -145,7 +175,7 @@ func doPostRequest[T any](ctx context.Context, c *Client, url string, body any) 
 		return out, fmt.Errorf("json.Marshal: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(msg))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.resolveURL(url), bytes.NewBuffer(msg))
 	if err != nil {
 		return out, fmt.Errorf("http.NewRequest: %w", err)
 	}
@@ -159,7 +189,7 @@ func doPutRequest[T any](ctx context.Context, c *Client, url string, body any) (
 		return out, fmt.Errorf("json.Marshal: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewBuffer(msg))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.resolveURL(url), bytes.NewBuffer(msg))
 	if err != nil {
 		return out, fmt.Errorf("http.NewRequest: %w", err)
 	}
